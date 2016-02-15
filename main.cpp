@@ -39,6 +39,10 @@ void sig_int( int sig )
 class UserFollowerControl : public FollowerControlBase 
 {
 	public:
+
+		double error_i = 0;
+		double last_error = 0;
+
 		// Description of parameters:
 		// int leader : robot id of leader
 		// double sep_dist : desired separation distance between this robot and the leader
@@ -68,11 +72,17 @@ class UserFollowerControl : public FollowerControlBase
 			
 			//initialize variables 
 			double kp = 0.04; //proportional gain constant 
-			double error = dist-sep_dist;
+			double ki = 0;
+			double kd = 0;
+
+
+			double error_p = dist-sep_dist;
+			error_i += error_p;
+			double error_d = last_error-error_p;
 			
 			//calculate required speed
 			//maybe use my_speed instead of 0.3?
-			req_speed = 0.3 + kp*(error);
+			req_speed = kp*(error_p)+ ki*(error_i) + kd*(error_d);
 
 			// cap req_speed to road speed
 			//if ( req_speed > road_speed) {
@@ -80,7 +90,7 @@ class UserFollowerControl : public FollowerControlBase
 			//}
 
 			//print to display window error signal
-			printf("error: %f\n",error);
+			printf("error_p: %f\nerror_p: %f\nerror_p: %f\n",error_p,error_i,error_d);
 
 			// check to see if robot should stop
 			if( req_speed < 0.0 || dist < CONVOY_MIN_SEP_DIST || ( ( dist < CONVOY_MIN_SEP_DIST ) && alldrp->drp[ leader ].speed < STOPPED_SPEED ) ){
