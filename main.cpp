@@ -82,7 +82,7 @@ class UserFollowerControl : public FollowerControlBase
 			
 			//calculate required speed
 			//maybe use my_speed instead of 0.3?
-			req_speed = kp*(error_p)+ ki*(error_i) + kd*(error_d);
+			req_speed = leader_speed + kp*(error_p)+ ki*(error_i) + kd*(error_d);
 
 			// cap req_speed to road speed
 			//if ( req_speed > road_speed) {
