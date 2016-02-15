@@ -40,8 +40,14 @@ class UserFollowerControl : public FollowerControlBase
 {
 	public:
 
-		double error_i = 0;
-		double last_error = 0;
+		UserFollowerControl()
+		{
+			error_i = 0;
+			last_error = 0;
+		}
+
+		double error_i;
+		double last_error;
 
 		// Description of parameters:
 		// int leader : robot id of leader
