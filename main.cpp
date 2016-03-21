@@ -55,6 +55,7 @@ int main( int argc, char *argv[] )
 	bool sign_flag = false;
 	bool light_flag = false;
 	bool stop_flag = false;
+	bool wait_flag = false;
 	while( ( opt = getopt( argc, argv, "r:svp:l" ) ) != -1 )
 	{
 		switch( opt )
@@ -297,21 +298,20 @@ int main( int argc, char *argv[] )
 				// one of the robots is this robot
 				if( ob_dist != 0 )
 				{
-					// TODO:
-					// 1) check to see if you're approaching the stop sign intersection
-					// Determine distance to stopline from each robot
+					//Set stopline positions
 					double ob0_x = 7.348;
 					double ob0_y = -0.779;	
 					double ob1_x = 6.896;
 					double ob1_y = 0.519;					
 
+					//Calculate distance from each robot to its stopline
 					double dist0_stop = pow(pow(x - ob0_x,2) + pow(y-ob0_y,2),0.5);
 					double dist1_stop = pow(pow(ob_x - ob1_x,2) + pow(ob_y-ob1_y,2),0.5);
 					
-					// Determine dot product of robot and stopsign center
-
+					//assume you have precedence unless you determine you don't
 					bool my_pres = true;
 
+					// Determine dot product of robot and stopsign center
 					double stop_x =  7.271;
 					double stop_y = -0.124;					
 
@@ -323,49 +323,56 @@ int main( int argc, char *argv[] )
 
 					double dot_prod = (A1*cos(new_yaw)+A2*sin(new_yaw));
 
-					//driving toward intersection
+					//if robot0 is within the area of the stopsign and facing it and supposed to check it
 					if(dist0_stop < 1.0 && dot_prod > 0 && sign_flag == false)
 					{
-					// 2) check to see if another robot has precedence at the intersection
-						if (dist1_stop < 1.0 && ob_v < 0.1)
+						//if another robot has already arrived and is stopped, it has precedence, so you don't 
+						if (dist1_stop < 1.0 && ob_v < 0.1 && wait_flag == false)
 							my_pres = false; //Car1 has pres
 											
-					// 3) stop once you hit your stop line
+						// Stop when first at the line
 						if (dist0_stop < 0.4){
 							req_speed = 0;
 						}
 						
-					// 4) if you have precedence, remain stopped for 2.0 sec before continuing
-						if (my_pres == true && stop_flag == true){
-							sleep(2);
-							stop_flag = false; 
-							sign_flag = true;
-							req_speed = -1;
+						// If you have precedence and have already stopped and are not waiting...
+						if (my_pres == true && stop_flag == true && wait_flag == false){
+							sleep(2);		//wait for 2 seconds
+							stop_flag = false; 	//set that you are not stopped and you are going through the intersection
+							sign_flag = true;	
+							req_speed = -1;		//move again
 						}
-					// 5) if you don't have precedence, remain stopped until the other robot has cleared the intersection
-						else if (my_pres == false && stop_flag == true && dist1_stop < 1.0){
-							//stop_flag = false; 
-							//sign_flag = true;
-							req_speed = 0;
+						// If you don't have precedence and are stopped...
+						else if (my_pres == false && stop_flag == true){
+							wait_flag = true;	//Set to wait for the intersection to clear
+							req_speed = 0;		//Don't move
+						}
+						
+						// If you are already waiting...
+						else if (wait_flag == true){
+							req_speed = 0.0;	//set speed to 0
+							// If Car1 is out of the intersection now...
+							if (dist1_stop > 0.75){
+								wait_flag = false;	//set your car to stop waiting
+								stop_flag = false; 	//and to stop stopping
+								sign_flag = true;	//and to go through the intersection
+								req_speed = -1;		//and to move
+							}
 						}
 
-						//throw stop flag if too close to line
+						// Set flag to stop car once at the stopline
 						if (dist0_stop < 0.4){
 							stop_flag = true;
 						}
 					}
 
+					//if you are going through the intersection and have cleared it...
 					if (sign_flag == true && dist0_stop > 1.5){
-						sign_flag = false;
-						stop_flag = false;
+						sign_flag = false;	//set flag to monitor stop signs again
+						stop_flag = false;	//set flag to be able to stop again
 					}
 						
-							
-					// 6) check if you're too close to the robot as you're following it
-						
-					// set req_speed = 0 if need to stop
-					// set req_speed = -1 if to continue at the normal speed
-					// set req_speed = any other value < 0.5 m/s to drive at that speed
+					// determine dot product of Car0 and object
 					double A12 = ob_x - x;
 					double A22 = ob_y - y;
 					double new_yaw2 = -yaw+M_PI/2;
@@ -374,14 +381,16 @@ int main( int argc, char *argv[] )
 
 					double dot_prod2 = (A12*cos(new_yaw2)+A22*sin(new_yaw2));
 
-					// one of the robots is this robot
+					// If the object is in the direction of Car0
 					if( ob_dist != 0 && dot_prod2 > 0.0)
 					{
+						// And if the object is within 0.5m, stop the car
 						if( ob_dist <= 0.5 ){
 							req_speed = 0.0;
 						}
+						// Else if the object is within 1.0 meter and the car is supposed to be moving, 
 						else if( ob_dist <= 1.0 && req_speed != 0.0){
-							//req_speed = ob_v;
+							req_speed = ob_v; //match the speed of the car
 						}
 
 					}	
