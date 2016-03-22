@@ -191,6 +191,17 @@ int main( int argc, char *argv[] )
 		ob_valid_foundall = true;
 	}
 
+	#define UNKNOWN 0
+	#define EWL_GREEN 1
+	#define EWL_YELLOW 2
+	#define EW_GREEN 3
+	#define EW_YELLOW 4
+	#define ALL_RED_FIRST 5
+	#define NS_GREEN 6
+	#define NS_YELLOW 7
+	#define ALL_RED_SECOND 8
+	bool continue_flag = true;
+
 	// Simulation update loop
 	while( run )
 	{
@@ -223,6 +234,31 @@ int main( int argc, char *argv[] )
 		// reset the required speed
 		req_speed = -1;
 
+		//factor for converting counts to time, taking into account simulation speed
+		#define SIMT3 0
+		#define SIMT5 1
+		#define SIMT1 2
+
+		int current_simt = SIMT5;
+
+		float factor;
+
+		switch(current_simt)
+		{
+			case(SIMT3):
+				factor = 0.03;
+				break;
+			case(SIMT5):
+				factor = 0.05;
+				break;
+			case(SIMT1):
+				factor =  0.1;
+				break;
+		}
+
+		float nec_vel;
+		int stopline_min_prev; 
+
 		// Look for traffic lights
 		vector<TLight*> lights = getValidTLights( alltraffic );
 		for( vector<TLight*>::iterator iter = lights.begin(); iter != lights.end(); iter++ )
@@ -234,15 +270,141 @@ int main( int argc, char *argv[] )
 			// 1) detect which stop line is in your lane
 			// 2) if you're approaching the traffic light calculate the robot speed to hit the stop line when the light status is GREEN_LIGHT
 			// 3) if you don't make the green phase, stop at the line if light status is RED_LIGHT or YELLOW_LIGHT
-			for( int i = 0; i < traffic->valid_stops; i++ )
+			//concerned with status?
+			int current_state = UNKNOWN; 
+
+			if (dist_to_center < 4 && continue_flag==true)
 			{
-				double stopdist = PathPlan::mc_distance( traffic->x_stop[ i ], traffic->y_stop[ i ], x, y );
-				// traffic->status[ i ] can equal RED_LIGHT, YELLOW_LIGHT, GREEN_LIGHT
-				// traffic->timer[ i ] will give you the time remaining at the current phase for green, yellow, and all red states. You will need to check other
-				//     light directions to see how much time is remaining in red. Units are in 0.1 seconds
-				// set req_speed = 0 if the robot should stop
-				// set req_speed = any other value < 0.5 m/s to drive at that speed				
+				float stopline_min = 100;
+				int stopline; 
+				int flag;
+
+				for( int i = 0; i < traffic->valid_stops; i++ )
+				{
+					double stopdist = PathPlan::mc_distance( traffic->x_stop[ i ], traffic->y_stop[ i ], x, y );
+					// traffic->status[ i ] can equal RED_LIGHT, YELLOW_LIGHT, GREEN_LIGHT
+					// traffic->timer[ i ] will give you the time remaining at the current phase for green, yellow, and all red states. You will need to check other
+					//     light directions to see how much time is remaining in red. Units are in 0.1 seconds
+					// set req_speed = 0 if the robot should stop
+					// set req_speed = any other value < 0.5 m/s to drive at that speed			
+					if (stopdist < stopline_min)
+					{
+
+						stopline_min = stopdist;
+						if(stopline_min>stopline_min_prev)
+						{
+							continue_flag==false;
+							break;
+						}
+						stopline = i;
+						stopline_min_prev=stopline_min;
+					}	
+				}
+				if(continue_flag==false) break;
+				printf("Closest stopline %d is %f m away\n",stopline,stopline_min);
+			
+				//light decisions
+				if (traffic->status[stopline] == GREEN_LIGHT)
+				{
+					//is there enough time to make this green?
+					//necessary velocity to make green
+					nec_vel = (stopline_min - 0.4)/(traffic->timer[stopline]*factor);
+					if (nec_vel < 0.25)//go default speed
+					{
+						nec_vel = 0.25;
+					} 
+					else if(nec_vel > 0.5)//go slow enough to catch next green
+					{
+						nec_vel = (stopline_min - 0.4)/(traffic->timer[stopline]*factor + 16.5);
+					}
+					else //speed up to catch green
+					{
+						nec_vel = (stopline_min - 0.4)/(traffic->timer[stopline]*factor);
+					}
+					current_state = EW_GREEN;
+				}
+				else if (traffic->status[stopline] ==YELLOW_LIGHT)
+				{
+					nec_vel = (stopline_min - 0.4)/(traffic->timer[stopline]*factor + 15);
+					current_state = EW_YELLOW;
+				}
+
+				else //traffic light red
+				{
+					int prev_state = current_state;
+
+					if((traffic->timer[0]==traffic->timer[1]) && (traffic->timer[0]==traffic->timer[2]) && (traffic->timer[0]==traffic->timer[3]) && (traffic->timer[0]==traffic->timer[4]) && (traffic->timer[0]==traffic->timer[5])) 
+					{
+						switch(prev_state)
+						{							
+							case(EW_YELLOW):
+								current_state = ALL_RED_FIRST;		
+								break;
+							case(NS_YELLOW):
+								current_state = ALL_RED_SECOND;
+								break;
+							default:
+								current_state = prev_state;
+								break;
+						}
+					}
+					else
+					{
+						if (traffic->status[2] == GREEN_LIGHT)
+						{
+							current_state = EW_GREEN;
+						}
+						else if(traffic->status[2] == YELLOW_LIGHT)
+						{
+							current_state = EW_YELLOW;
+						}
+						else if(traffic->status[1] == GREEN_LIGHT)
+						{
+							current_state = NS_GREEN;
+						}
+						else if(traffic->status[1] == YELLOW_LIGHT)
+						{
+							current_state = NS_YELLOW;
+						}
+					}
+					//slow lough it
+					switch (current_state)
+					{
+						case(ALL_RED_FIRST):
+						nec_vel = (stopline_min - 0.4)/(traffic->timer[stopline]*factor + 7.5);
+						break;
+
+						case(ALL_RED_SECOND):
+						nec_vel = (stopline_min - 0.4)/(traffic->timer[stopline]*factor);
+						break; 
+
+						case(EW_GREEN):
+						nec_vel = (stopline_min - 0.4)/(traffic->timer[2]*factor + 10);
+						break; 
+
+						case(EW_YELLOW):
+						nec_vel = (stopline_min - 0.4)/(traffic->timer[2]*factor + 8);
+						break; 
+
+						case(NS_GREEN):
+						nec_vel = (stopline_min - 0.4)/(traffic->timer[1]*factor + 2.5);
+						break; 
+
+						case(NS_YELLOW):
+						nec_vel = (stopline_min - 0.4)/(traffic->timer[1]*factor + 0.5);
+						break;
+
+					}
+				}
+			req_speed = nec_vel;
 			}
+			
+			else
+			{
+				current_state = UNKNOWN;
+			}
+			printf("continue flag = %d\n",(int)continue_flag);
+			printf("current state = %d\n", current_state);
 		}
 
 		// Look for new robots in the simulation
@@ -428,6 +590,3 @@ int main( int argc, char *argv[] )
 	fclose( pathfd );
 	return 0;
 }
-
-
-
