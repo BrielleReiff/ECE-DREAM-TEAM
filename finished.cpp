@@ -242,7 +242,7 @@ int main( int argc, char *argv[] )
 		#define SIMT5 1
 		#define SIMT1 2
 
-		int current_simt = SIMT5;
+		int current_simt = SIMT1;
 
 		float factor;
 
@@ -304,38 +304,39 @@ int main( int argc, char *argv[] )
 				bool found_state = false;				
 				while(found_state == false){
 				found_state = true;
+				double offset = 0.25;
 				if (traffic->status[0] == 1)
 				{
-					time_to_green = traffic->timer[0]*factor + 10 +0.5;
+					time_to_green = traffic->timer[0]*factor + 10 +offset;
 					//time_to_green = traffic->timer[0]*factor + 10*factor/10.0;
 				}
 				else if (traffic->status[0] == 4)
 				{
-					time_to_green = traffic->timer[0]*factor + 8 +0.5;
+					time_to_green = traffic->timer[0]*factor + 8 +offset;
 					//time_to_green = traffic->timer[0]*factor + 8*factor/10.0;
 				}
 				else if (traffic->status[1] == 1)
 				{
-					time_to_green = traffic->timer[1]*factor + 2.5 +0.5;
+					time_to_green = traffic->timer[1]*factor + 2.5 +offset;
 					//time_to_green = traffic->timer[1]*factor + 2.5*factor/10.0;
 				}
 				else if (traffic->status[1] == 4)
 				{
-					time_to_green = traffic->timer[1]*factor + 0.5 +0.5;
+					time_to_green = traffic->timer[1]*factor + 0.5 +offset;
 					//time_to_green = traffic->timer[1]*factor + 0.5*factor/10.0;
 				}
 				else if (traffic->status[4] == 1)
 				{
-					time_to_green = traffic->timer[4]*factor;
-					req_speed = (stopline_min-0.4) / time_to_green;
+					time_to_green = traffic->timer[4]*factor+0.1;
+					req_speed = (stopline_min-0.5) / time_to_green;
 
 					if(req_speed > 0.5)
-						time_to_green = traffic->timer[4]*factor + 16.5 +0.5;
+						time_to_green = traffic->timer[4]*factor + 16.5 +offset;
 					//time_to_green = traffic->timer[4]*factor + 16.5*factor/10.0;
 				}
 				else if (traffic->status[4] == 4)
 				{
-					time_to_green = traffic->timer[4]*factor + 15 +0.5;
+					time_to_green = traffic->timer[4]*factor + 15 +offset;
 					//time_to_green = traffic->timer[4]*factor + 15*factor/10.0;
 				}
 				else //traffic light red
@@ -344,10 +345,10 @@ int main( int argc, char *argv[] )
 				}
 				}
 				
-				req_speed = (stopline_min-0.4) / time_to_green;
+				req_speed = (stopline_min-0.5) / time_to_green;
 				int kk = 1;
 				while(req_speed>0.5){
-					req_speed = (stopline_min-0.4) / (time_to_green + (kk * 19));	
+					req_speed = (stopline_min-0.5) / (time_to_green + (kk * 19));	
 					kk = kk + 1;
 				}
 			}
@@ -449,7 +450,7 @@ int main( int argc, char *argv[] )
 							my_pres = false; //Car1 has pres
 											
 						// Stop when first at the line
-						if (dist0_stop < 0.4){
+						if (dist0_stop < 0.35){
 							req_speed = 0;
 						}
 						
@@ -481,7 +482,7 @@ int main( int argc, char *argv[] )
 						}
 
 						// Set flag to stop car once at the stopline
-						if (dist0_stop < 0.4){
+						if (dist0_stop < 0.35){
 							stop_flag = true;
 						}
 					}
