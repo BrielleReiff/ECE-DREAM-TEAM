@@ -52,9 +52,6 @@ int main( int argc, char *argv[] )
 	bool show_path = false;
 	bool verbose = false;
 	bool use_ranger_avoid = false;
-	bool sign_flag = false;
-	bool light_flag = false;
-	bool stop_flag = false;
 	while( ( opt = getopt( argc, argv, "r:svp:l" ) ) != -1 )
 	{
 		switch( opt )
@@ -191,6 +188,32 @@ int main( int argc, char *argv[] )
 		ob_valid_foundall = true;
 	}
 
+	// Simulation update loop
+
+	bool lock_stop_line = false;
+	int current_index;
+
+	#define SIMT3 0
+	#define SIMT5 1
+	#define SIMT1 2
+
+	int current_simt = SIMT5;
+
+	float factor;
+
+	switch(current_simt)
+	{
+		case(SIMT3):
+			factor = 0.03;
+			break;
+		case(SIMT5):
+			factor = 0.05;
+			break;
+		case(SIMT1):
+			factor =  0.1;
+			break;
+	}
+
 	#define UNKNOWN 0
 	#define EWL_GREEN 1
 	#define EWL_YELLOW 2
@@ -200,9 +223,11 @@ int main( int argc, char *argv[] )
 	#define NS_GREEN 6
 	#define NS_YELLOW 7
 	#define ALL_RED_SECOND 8
-	bool continue_flag = true;
 
-	// Simulation update loop
+	int current_state = UNKNOWN;
+	float prev_dist = 1000;
+
+
 	while( run )
 	{
 		// Update low level controller
@@ -234,31 +259,8 @@ int main( int argc, char *argv[] )
 		// reset the required speed
 		req_speed = -1;
 
-		//factor for converting counts to time, taking into account simulation speed
-		#define SIMT3 0
-		#define SIMT5 1
-		#define SIMT1 2
-
-		int current_simt = SIMT5;
-
-		float factor;
-
-		switch(current_simt)
-		{
-			case(SIMT3):
-				factor = 0.03;
-				break;
-			case(SIMT5):
-				factor = 0.05;
-				break;
-			case(SIMT1):
-				factor =  0.1;
-				break;
-		}
-
-		float nec_vel;
-		int stopline_min_prev; 
-
+		int stop_line;
+		float stop_dist_min;
 		// Look for traffic lights
 		vector<TLight*> lights = getValidTLights( alltraffic );
 		for( vector<TLight*>::iterator iter = lights.begin(); iter != lights.end(); iter++ )
@@ -270,62 +272,58 @@ int main( int argc, char *argv[] )
 			// 1) detect which stop line is in your lane
 			// 2) if you're approaching the traffic light calculate the robot speed to hit the stop line when the light status is GREEN_LIGHT
 			// 3) if you don't make the green phase, stop at the line if light status is RED_LIGHT or YELLOW_LIGHT
-			//concerned with status?
-			int current_state = UNKNOWN; 
-
-			if (dist_to_center < 4 && continue_flag==true)
+			stop_dist_min = 1000;
+			for( int i = 0; i < traffic->valid_stops; i++ )
 			{
-				float stopline_min = 100;
-				int stopline; 
-				int flag;
+				double stopdist = PathPlan::mc_distance( traffic->x_stop[ i ], traffic->y_stop[ i ], x, y );
+				// traffic->status[ i ] can equal RED_LIGHT, YELLOW_LIGHT, GREEN_LIGHT
+				// traffic->timer[ i ] will give you the time remaining at the current phase for green, yellow, and all red states. You will need to check other
+				//     light directions to see how much time is remaining in red. Units are in 0.1 seconds
+				// set req_speed = 0 if the robot should stop
+				// set req_speed = any other value < 0.5 m/s to drive at that speed
 
-				for( int i = 0; i < traffic->valid_stops; i++ )
+				if(stopdist<stop_dist_min)
 				{
-					double stopdist = PathPlan::mc_distance( traffic->x_stop[ i ], traffic->y_stop[ i ], x, y );
-					// traffic->status[ i ] can equal RED_LIGHT, YELLOW_LIGHT, GREEN_LIGHT
-					// traffic->timer[ i ] will give you the time remaining at the current phase for green, yellow, and all red states. You will need to check other
-					//     light directions to see how much time is remaining in red. Units are in 0.1 seconds
-					// set req_speed = 0 if the robot should stop
-					// set req_speed = any other value < 0.5 m/s to drive at that speed			
-					if (stopdist < stopline_min)
-					{
+					stop_dist_min = stopdist;
+					stop_line = i;
+					//printf("hi mom\n");
+				}				
+			}
 
-						stopline_min = stopdist;
-						if(stopline_min>stopline_min_prev)
-						{
-							continue_flag==false;
-							break;
-						}
-						stopline = i;
-						stopline_min_prev=stopline_min;
-					}	
+			if(dist_to_center < 4)
+			{
+				float nec_vel;
+				if(lock_stop_line == false)
+				{
+					lock_stop_line = true;
+					current_index = stop_line;
 				}
-				if(continue_flag==false) break;
-				printf("Closest stopline %d is %f m away\n",stopline,stopline_min);
-			
-				//light decisions
-				if (traffic->status[stopline] == GREEN_LIGHT)
+				float dist_current_index = PathPlan::mc_distance( traffic->x_stop[ current_index ], traffic->y_stop[ current_index ], x, y );
+
+				printf("locked stopline: %d is: %f m away\n",current_index,dist_current_index);
+
+				if (traffic->status[lock_stop_line] == GREEN_LIGHT)
 				{
 					//is there enough time to make this green?
 					//necessary velocity to make green
-					nec_vel = (stopline_min - 0.4)/(traffic->timer[stopline]*factor);
+					nec_vel = (dist_current_index - 0.4)/(traffic->timer[current_index]*factor);
 					if (nec_vel < 0.25)//go default speed
 					{
 						nec_vel = 0.25;
 					} 
 					else if(nec_vel > 0.5)//go slow enough to catch next green
 					{
-						nec_vel = (stopline_min - 0.4)/(traffic->timer[stopline]*factor + 16.5);
+						nec_vel = (dist_current_index - 0.4)/(traffic->timer[current_index]*factor + 16.5);
 					}
 					else //speed up to catch green
 					{
-						nec_vel = (stopline_min - 0.4)/(traffic->timer[stopline]*factor);
+						nec_vel = (dist_current_index - 0.4)/(traffic->timer[current_index]*factor);
 					}
 					current_state = EW_GREEN;
 				}
-				else if (traffic->status[stopline] ==YELLOW_LIGHT)
+				else if (traffic->status[current_index] ==YELLOW_LIGHT)
 				{
-					nec_vel = (stopline_min - 0.4)/(traffic->timer[stopline]*factor + 15);
+					nec_vel = (dist_current_index - 0.4)/(traffic->timer[current_index]*factor + 15);
 					current_state = EW_YELLOW;
 				}
 
@@ -371,41 +369,49 @@ int main( int argc, char *argv[] )
 					switch (current_state)
 					{
 						case(ALL_RED_FIRST):
-						nec_vel = (stopline_min - 0.4)/(traffic->timer[stopline]*factor + 7.5);
+						nec_vel = (dist_current_index - 0.4)/(traffic->timer[current_index]*factor + 7.5);
 						break;
 
 						case(ALL_RED_SECOND):
-						nec_vel = (stopline_min - 0.4)/(traffic->timer[stopline]*factor);
+						nec_vel = (dist_current_index - 0.4)/(traffic->timer[current_index]*factor);
 						break; 
 
 						case(EW_GREEN):
-						nec_vel = (stopline_min - 0.4)/(traffic->timer[2]*factor + 10);
+						nec_vel = (dist_current_index - 0.4)/(traffic->timer[2]*factor + 10);
 						break; 
 
 						case(EW_YELLOW):
-						nec_vel = (stopline_min - 0.4)/(traffic->timer[2]*factor + 8);
+						nec_vel = (dist_current_index - 0.4)/(traffic->timer[2]*factor + 8);
 						break; 
 
 						case(NS_GREEN):
-						nec_vel = (stopline_min - 0.4)/(traffic->timer[1]*factor + 2.5);
+						nec_vel = (dist_current_index - 0.4)/(traffic->timer[1]*factor + 2.5);
 						break; 
 
 						case(NS_YELLOW):
-						nec_vel = (stopline_min - 0.4)/(traffic->timer[1]*factor + 0.5);
+						nec_vel = (dist_current_index - 0.4)/(traffic->timer[1]*factor + 0.5);
 						break;
 
 					}
 				}
-			req_speed = nec_vel;
+				if(prev_dist < dist_current_index)
+				{
+					req_speed = .25;
+				}
+				else
+				{
+					req_speed = nec_vel;
+					prev_dist = dist_current_index;
+				}
 			}
-			
 			else
 			{
+				lock_stop_line = false;
 				current_state = UNKNOWN;
 			}
-			printf("continue flag = %d\n",(int)continue_flag);
-			printf("current state = %d\n", current_state);
 		}
+		printf("current stopline: %d is: %f m away\n",stop_line,stop_dist_min);
+
 
 		// Look for new robots in the simulation
 		if( !ob_valid_foundall )
@@ -461,93 +467,15 @@ int main( int argc, char *argv[] )
 				{
 					// TODO:
 					// 1) check to see if you're approaching the stop sign intersection
-					// Determine distance to stopline from each robot
-					double ob0_x = 7.348;
-					double ob0_y = -0.779;	
-					double ob1_x = 6.896;
-					double ob1_y = 0.519;					
-
-					double dist0_stop = pow(pow(x - ob0_x,2) + pow(y-ob0_y,2),0.5);
-					double dist1_stop = pow(pow(ob_x - ob1_x,2) + pow(ob_y-ob1_y,2),0.5);
-					
-					// Determine dot product of robot and stopsign center
-
-					bool my_pres = true;
-
-					double stop_x =  7.271;
-					double stop_y = -0.124;					
-
-					double A1 = stop_x - x;
-					double A2 = stop_y - y;
-					double new_yaw = -yaw+M_PI/2;
-					if (new_yaw < 0)
-						new_yaw = new_yaw + 2*M_PI;
-
-					double dot_prod = (A1*cos(new_yaw)+A2*sin(new_yaw));
-
-					//driving toward intersection
-					if(dist0_stop < 1.0 && dot_prod > 0 && sign_flag == false)
-					{
 					// 2) check to see if another robot has precedence at the intersection
-						if (dist1_stop < 1.0 && ob_v < 0.1)
-							my_pres = false; //Car1 has pres
-											
 					// 3) stop once you hit your stop line
-						if (dist0_stop < 0.4){
-							req_speed = 0;
-						}
-						
 					// 4) if you have precedence, remain stopped for 2.0 sec before continuing
-						if (my_pres == true && stop_flag == true){
-							sleep(2);
-							stop_flag = false; 
-							sign_flag = true;
-							req_speed = -1;
-						}
 					// 5) if you don't have precedence, remain stopped until the other robot has cleared the intersection
-						else if (my_pres == false && stop_flag == true && dist1_stop < 1.0){
-							//stop_flag = false; 
-							//sign_flag = true;
-							req_speed = 0;
-						}
-
-						//throw stop flag if too close to line
-						if (dist0_stop < 0.4){
-							stop_flag = true;
-						}
-					}
-
-					if (sign_flag == true && dist0_stop > 1.5){
-						sign_flag = false;
-						stop_flag = false;
-					}
-						
-							
 					// 6) check if you're too close to the robot as you're following it
-						
+					
 					// set req_speed = 0 if need to stop
 					// set req_speed = -1 if to continue at the normal speed
 					// set req_speed = any other value < 0.5 m/s to drive at that speed
-					double A12 = ob_x - x;
-					double A22 = ob_y - y;
-					double new_yaw2 = -yaw+M_PI/2;
-					if (new_yaw2 < 0)
-						new_yaw2 = new_yaw2 + 2*M_PI;
-
-					double dot_prod2 = (A12*cos(new_yaw2)+A22*sin(new_yaw2));
-
-					// one of the robots is this robot
-					if( ob_dist != 0 && dot_prod2 > 0.0)
-					{
-						if( ob_dist <= 0.5 ){
-							req_speed = 0.0;
-						}
-						else if( ob_dist <= 1.0 && req_speed != 0.0){
-							//req_speed = ob_v;
-						}
-
-					}	
-				
 				}
 			}
 		}
@@ -590,3 +518,6 @@ int main( int argc, char *argv[] )
 	fclose( pathfd );
 	return 0;
 }
+
+
+
